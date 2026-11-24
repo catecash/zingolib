@@ -1,0 +1,29 @@
+[package]
+name = "catecash-miner-transfer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "catecash-miner-sweep"
+path = "src/miner_sweep.rs"
+
+[[bin]]
+name = "catecash-wallet-send"
+path = "src/wallet_send.rs"
+
+[dependencies]
+hex.workspace = true
+http.workspace = true
+incrementalmerkletree.workspace = true
+orchard.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["full"] }
+zcash_address.workspace = true
+zcash_client_backend.workspace = true
+zcash_keys.workspace = true
+zcash_primitives.workspace = true
+zcash_protocol.workspace = true
+zingolib.workspace = true
+zl-netutils.workspace = true
+zip32.workspace = true

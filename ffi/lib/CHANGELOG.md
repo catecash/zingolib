@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `get_balance` returns exact decimal atomic strings for Catecash scanned
+  pools, including aggregate balances above the legacy Zatoshis cap.
 - `mixnet_fetch(url, timeout_ms)` GETs one `https` URL on port 443 over the
   mixnet and answers `{ status, body, via_socks5, rtt_ms }`. Every HTTP
   status is a response, so the caller reads `status`. The call makes one

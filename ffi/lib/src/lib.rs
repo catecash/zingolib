@@ -70,6 +70,9 @@ use zingolib::wallet::migration::{
 use zingo_common_components::protocol::ActivationHeights;
 
 const INDEXER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const CATECASH_DEVNET_CHAIN_NAME: &str = "catecash-devnet";
+const CATECASH_TESTNET_CHAIN_NAME: &str = "catecash-testnet";
+const CATECASH_MAINNET_CHAIN_NAME: &str = "catecash-mainnet";
 
 // Bounds the pending-URI redial in attach_pending_indexer.
 const PENDING_INDEXER_DIAL_TIMEOUT: Duration = Duration::from_secs(5);
@@ -780,6 +783,9 @@ fn chain_type_from_hint(hint: &str) -> Result<ChainType, ZingolibError> {
         "main" => ChainType::Mainnet,
         "test" => ChainType::Testnet,
         "regtest" => ChainType::Regtest(ActivationHeights::default()),
+        CATECASH_DEVNET_CHAIN_NAME => ChainType::CatecashDevnet,
+        CATECASH_TESTNET_CHAIN_NAME => ChainType::CatecashTestnet,
+        CATECASH_MAINNET_CHAIN_NAME => ChainType::CatecashMainnet,
         hint => match hint.strip_prefix("regtest:") {
             // A regtest chain has no universal schedule: the node that was
             // launched is the only authority on its activation heights
@@ -999,6 +1005,9 @@ pub fn init_from_bytes(
                 "main".to_string(),
                 "test".to_string(),
                 "regtest".to_string(),
+                CATECASH_DEVNET_CHAIN_NAME.to_string(),
+                CATECASH_TESTNET_CHAIN_NAME.to_string(),
+                CATECASH_MAINNET_CHAIN_NAME.to_string(),
             ]
         } else {
             vec![connection.chain_hint.clone()]
@@ -1770,6 +1779,20 @@ mod parse_and_stub_error_channel_tests {
     }
 
     #[test]
+    fn mainnet_recipient_reports_catecash_mainnet_chain() {
+        use zcash_address::ToAddress as _;
+        let address = zcash_address::ZcashAddress::from_transparent_p2pkh(
+            NetworkType::CatecashMainnet,
+            [0x42; 20],
+        )
+        .to_string();
+        let parsed = parse_address(address).expect("recipient parses");
+        let report: serde_json::Value = serde_json::from_str(&parsed).expect("JSON report");
+        assert_eq!(report["status"], "success");
+        assert_eq!(report["chain_name"], CATECASH_MAINNET_CHAIN_NAME);
+    }
+
+    #[test]
     fn empty_ufvk_travels_on_the_error_channel() {
         let error = parse_ufvk(String::new())
             .expect_err("an empty viewkey must be typed, not prose in the data channel");
@@ -2443,13 +2466,16 @@ fn ironwood_activation_height(chain: ChainType) -> Option<u32> {
 }
 
 /// The loaded wallet's chain as the short token the JS layer uses
-/// (`ChainNameEnum`: "main" / "test" / "regtest"). Read straight from the
+/// (`ChainNameEnum`: "main" / "test" / "regtest" / "catecash-devnet"). Read straight from the
 /// wallet, so it is reliable even Offline (no server).
 fn chain_name_short(chain: ChainType) -> &'static str {
     match chain {
         ChainType::Mainnet => "main",
         ChainType::Testnet => "test",
         ChainType::Regtest(_) => "regtest",
+        ChainType::CatecashDevnet => CATECASH_DEVNET_CHAIN_NAME,
+        ChainType::CatecashTestnet => CATECASH_TESTNET_CHAIN_NAME,
+        ChainType::CatecashMainnet => CATECASH_MAINNET_CHAIN_NAME,
     }
 }
 
@@ -2562,17 +2588,12 @@ impl Report for ViewingKey {
 
 wallet_report!(pub fn get_ufvk() => report_wallet(ViewingKey::of));
 
-/// The chain a wallet file was written for: `main`, `test` or `regtest`.
+/// The chain a wallet file was written for.
 #[uniffi::export]
 pub fn read_wallet_chain(wallet_bytes: Vec<u8>) -> Result<String, ZingolibError> {
     let chain = zingolib::wallet::LightWallet::read_chain(&wallet_bytes)
         .map_err(chained(ZingolibError::Read))?;
-    Ok(match chain {
-        ChainType::Mainnet => "main",
-        ChainType::Testnet => "test",
-        ChainType::Regtest(_) => "regtest",
-    }
-    .to_string())
+    Ok(chain_name_short(chain).to_string())
 }
 
 /// Salvages seed phrase, birthday, and account count from the stable prefix
@@ -2592,6 +2613,9 @@ pub fn validate_wallet_bytes(wallet_bytes: Vec<u8>) -> Result<(), ZingolibError>
         ChainType::Mainnet,
         ChainType::Testnet,
         ChainType::Regtest(ActivationHeights::default()),
+        ChainType::CatecashDevnet,
+        ChainType::CatecashTestnet,
+        ChainType::CatecashMainnet,
     ];
     let mut deepest = (0usize, String::from("empty wallet bytes"));
     for chain in chains {
@@ -2706,6 +2730,26 @@ mod wallet_validation_tests {
         }
 
         validate_wallet_bytes(saved_wallet("test")).expect("the testnet wallet must validate");
+        let catecash_wallet = saved_wallet(CATECASH_DEVNET_CHAIN_NAME);
+        validate_wallet_bytes(catecash_wallet.clone()).expect("the Catecash wallet must validate");
+        assert_eq!(
+            read_wallet_chain(catecash_wallet).unwrap(),
+            CATECASH_DEVNET_CHAIN_NAME
+        );
+        let testnet_wallet = saved_wallet(CATECASH_TESTNET_CHAIN_NAME);
+        validate_wallet_bytes(testnet_wallet.clone())
+            .expect("the Catecash testnet wallet must validate");
+        assert_eq!(
+            read_wallet_chain(testnet_wallet).unwrap(),
+            CATECASH_TESTNET_CHAIN_NAME
+        );
+        let mainnet_wallet = saved_wallet(CATECASH_MAINNET_CHAIN_NAME);
+        validate_wallet_bytes(mainnet_wallet.clone())
+            .expect("the Catecash mainnet wallet must validate");
+        assert_eq!(
+            read_wallet_chain(mainnet_wallet).unwrap(),
+            CATECASH_MAINNET_CHAIN_NAME
+        );
     }
 
     #[test]
@@ -2807,16 +2851,15 @@ pub fn parse_address(address: String) -> Result<String, ZingolibError> {
                     ChainType::Mainnet,
                     ChainType::Testnet,
                     ChainType::Regtest(ActivationHeights::default()),
+                    ChainType::CatecashDevnet,
+                    ChainType::CatecashTestnet,
+                    ChainType::CatecashMainnet,
                 ]
                 .iter()
                 .find_map(|chain| Address::decode(chain, address).zip(Some(*chain)))
             }
             if let Some((recipient_address, chain_name)) = make_decoded_chain_pair(&address) {
-                let chain_name_string = match chain_name {
-                    ChainType::Mainnet => "main",
-                    ChainType::Testnet => "test",
-                    ChainType::Regtest(_) => "regtest",
-                };
+                let chain_name_string = chain_name_short(chain_name);
                 Ok(match recipient_address {
                     Address::Sapling(_) => object! {
                         "status" => "success",
@@ -2909,6 +2952,9 @@ pub fn parse_ufvk(ufvk: String) -> Result<String, ZingolibError> {
                                 NetworkType::Main => "main",
                                 NetworkType::Test => "test",
                                 NetworkType::Regtest => "regtest",
+                                NetworkType::CatecashDevnet => CATECASH_DEVNET_CHAIN_NAME,
+                                NetworkType::CatecashTestnet => CATECASH_TESTNET_CHAIN_NAME,
+                                NetworkType::CatecashMainnet => "catecash-mainnet",
                             },
                             "address_kind" => "ufvk",
                             "pools_available" => pools_available,
@@ -2952,6 +2998,18 @@ pub fn get_messages(address: String) -> Result<String, ZingolibError> {
 pub fn get_balance() -> Result<String, ZingolibError> {
     with_initialized_lightclient_read(|lightclient| {
         RT.block_on(async move {
+            if matches!(
+                lightclient.chain_type(),
+                ChainType::CatecashDevnet | ChainType::CatecashTestnet | ChainType::CatecashMainnet
+            ) {
+                return lightclient
+                    .wallet()
+                    .read()
+                    .await
+                    .catecash_balance_json(AccountId::ZERO)
+                    .map(|balance| balance.pretty(2))
+                    .map_err(|error| ZingolibError::read(&error));
+            }
             match lightclient.account_balance(AccountId::ZERO).await {
                 Ok(bal) => Ok(json::JsonValue::from(bal).pretty(2)),
                 Err(e) => Err(ZingolibError::read(&e)),

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `GrpcIndexer::get_catecash_taddress_balance` reads the required 128-bit
+  `valueZatWide` response and returns its exact `u128` value. A response
+  without field 2 fails, including a legacy zero response.
 - `ConduitDial::fetch_response`, under the `socks5-fetch` feature, GETs a
   URL through the conduit and returns `socks5_fetch::HttpResponse`: the HTTP
   status code and the body as text. Every status is a response. A body over
@@ -48,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Option<http::Uri>`, since every `IndexerChain` now has a Default Indexer.
 - BREAKING: `GrpcIndexer` no longer carries the URI it was dialed from, so
   `GrpcIndexer::uri` is removed. The value is connected by construction and
-  holds the live client alone; the URI lives in the `NetworkAccess` beside
+  holds the live client channel; the URI lives in the `NetworkAccess` beside
   it.
 - `GrpcIndexer` now connects to IPv6 literal hosts (`https://[::1]:9067`).
 

@@ -63,6 +63,78 @@ mod mock_chain_tests;
 
 pub use zl_netutils::time::DEFAULT_REQUEST_TIMEOUT;
 
+const CATECASH_DEVNET_GENESIS_HASH: &str =
+    "6b9c4d783359202111571c123309b2c0511d1bf9036f74dee4921f04e1f0a9cf";
+const CATECASH_DEVNET_BRANCH_ID: &str = "ea3beeb4";
+const CATECASH_TESTNET_GENESIS_HASH: &str =
+    "15999c77e978a180c2f3fe2ec8478f8123e5c923f20bedaaf1b156fc38c4dda2";
+const CATECASH_TESTNET_BRANCH_ID: &str = "b80dae22";
+const CATECASH_MAINNET_GENESIS_HASH: &str =
+    "050bf7476db81684aeb38337fc931bd8bc4480fde43fb0a14fef172f85c5c323";
+const CATECASH_MAINNET_BRANCH_ID: &str = "5bc68392";
+
+pub(crate) async fn verify_catecash_indexer(
+    network: &zl_netutils::NetworkAccess,
+    chain: ChainType,
+) -> Result<(), zl_netutils::GetClientError> {
+    let (expected_chain, expected_branch, expected_genesis) = match chain {
+        ChainType::CatecashDevnet => (
+            "catecash-devnet",
+            CATECASH_DEVNET_BRANCH_ID,
+            CATECASH_DEVNET_GENESIS_HASH,
+        ),
+        ChainType::CatecashTestnet => (
+            "catecash-testnet",
+            CATECASH_TESTNET_BRANCH_ID,
+            CATECASH_TESTNET_GENESIS_HASH,
+        ),
+        ChainType::CatecashMainnet => (
+            "catecash-mainnet",
+            CATECASH_MAINNET_BRANCH_ID,
+            CATECASH_MAINNET_GENESIS_HASH,
+        ),
+        _ => return Ok(()),
+    };
+    let mut indexer = network
+        .indexer()
+        .ok_or(zl_netutils::GetClientError::NoIndexerUri)?
+        .clone();
+    let info = indexer
+        .get_lightd_info(DEFAULT_REQUEST_TIMEOUT)
+        .await
+        .map_err(|error| zl_netutils::GetClientError::NetworkIdentity(error.to_string()))?;
+    // At genesis the chain-tip branch is zero; the launch branch applies to
+    // the first mineable block. The genesis hash is checked below in either case.
+    let branch_matches = info
+        .consensus_branch_id
+        .eq_ignore_ascii_case(expected_branch)
+        || (info.block_height == 0 && info.consensus_branch_id == "00000000");
+    if info.chain_name != expected_chain || !branch_matches || info.sapling_activation_height != 1 {
+        return Err(zl_netutils::GetClientError::NetworkIdentity(format!(
+            "expected {expected_chain} branch {expected_branch}, got chain {} branch {}",
+            info.chain_name, info.consensus_branch_id
+        )));
+    }
+    let genesis = indexer
+        .get_block(
+            zl_netutils::lightwallet_protocol::BlockId {
+                height: 0,
+                hash: Vec::new(),
+            },
+            DEFAULT_REQUEST_TIMEOUT,
+        )
+        .await
+        .map_err(|error| zl_netutils::GetClientError::NetworkIdentity(error.to_string()))?;
+    let expected_hash =
+        hex::decode(expected_genesis).expect("Catecash genesis hash is a fixed valid hex literal");
+    if genesis.height != 0 || !genesis.hash.iter().rev().copied().eq(expected_hash) {
+        return Err(zl_netutils::GetClientError::NetworkIdentity(format!(
+            "{expected_chain} genesis hash differs from the wallet contract"
+        )));
+    }
+    Ok(())
+}
+
 /// Wallet struct owned by a [`crate::lightclient::LightClient`], with metadata and immutable wallet data stored outside
 /// the read/write lock.
 struct WalletMeta {
@@ -531,7 +603,11 @@ impl LightClient {
         config: &ClientConfig,
     ) -> Result<zl_netutils::NetworkAccess, zl_netutils::GetClientError> {
         match config.indexer_uri() {
-            Some(uri) => zl_netutils::NetworkAccess::online(uri).await,
+            Some(uri) => {
+                let network = zl_netutils::NetworkAccess::online(uri).await?;
+                verify_catecash_indexer(&network, config.chain_type()).await?;
+                Ok(network)
+            }
             None => Ok(zl_netutils::NetworkAccess::offline(
                 crate::config::default_indexer_for(&config.chain_type()),
             )),
@@ -564,6 +640,10 @@ impl LightClient {
         server: http::Uri,
     ) -> Result<(), zl_netutils::GetClientError> {
         self.network.connect_to(server).await?;
+        if let Err(error) = verify_catecash_indexer(&self.network, self.chain_type()).await {
+            self.network.go_offline();
+            return Err(error);
+        }
         self.fetch_standard_fee().await;
         Ok(())
     }
@@ -625,6 +705,10 @@ impl LightClient {
                 }
                 connect => ChooseIndexerError::Connect(connect),
             })?;
+        if let Err(error) = verify_catecash_indexer(&self.network, self.chain_type()).await {
+            self.network.go_offline();
+            return Err(ChooseIndexerError::Connect(error));
+        }
         self.fetch_standard_fee().await;
         Ok(uri)
     }
@@ -829,8 +913,81 @@ mod tests {
         testutils::default_test_wallet_settings,
     };
     use tempfile::TempDir;
+    use zcash_protocol::consensus::BlockHeight;
     use zingo_common_components::protocol::ActivationHeights;
     use zingo_test_vectors::seeds::CHIMNEY_BETTER_SEED;
+
+    #[tokio::test]
+    #[ignore = "requires Catecash Zaino on 127.0.0.1:34347"]
+    async fn catecash_indexer_matches_node_contract() {
+        let uri = "http://127.0.0.1:34347"
+            .parse()
+            .expect("fixed local indexer URI parses");
+        let network = zl_netutils::NetworkAccess::online(uri)
+            .await
+            .expect("Catecash indexer connects");
+        super::verify_catecash_indexer(&network, ChainType::CatecashDevnet)
+            .await
+            .expect("indexer reports Catecash genesis and branch");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Catecash mainnet candidate Zaino on 127.0.0.1:34337"]
+    async fn catecash_mainnet_candidate_indexer_matches_node_contract() {
+        let uri = "http://127.0.0.1:34337"
+            .parse()
+            .expect("fixed local indexer URI parses");
+        let network = zl_netutils::NetworkAccess::online(uri)
+            .await
+            .expect("candidate indexer connects");
+        super::verify_catecash_indexer(&network, ChainType::CatecashMainnet)
+            .await
+            .expect("indexer reports candidate genesis and branch");
+        assert!(
+            super::verify_catecash_indexer(&network, ChainType::CatecashTestnet)
+                .await
+                .is_err(),
+            "candidate indexer must not pass testnet identity checks"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Catecash Zaino on 127.0.0.1:34347"]
+    async fn catecash_wallet_syncs_mined_devnet_block() {
+        use crate::{config::IndexerChoice, wallet::WalletSettings};
+        use std::num::NonZeroU32;
+
+        let directory = TempDir::new().expect("temporary wallet directory opens");
+        let uri = "http://127.0.0.1:34347"
+            .parse()
+            .expect("fixed local indexer URI parses");
+        let config = ClientConfig::builder()
+            .set_chain_type(ChainType::CatecashDevnet)
+            .set_wallet_dir(directory.path().to_path_buf())
+            .set_indexer_choice(IndexerChoice::Named(uri))
+            .set_wallet_config(WalletConfig::NewSeed {
+                no_of_accounts: NonZeroU32::new(1).expect("one is nonzero"),
+                chain_height: 1,
+                wallet_settings: WalletSettings::default(),
+            })
+            .build()
+            .expect("Catecash wallet configuration builds");
+        let mut wallet = LightClient::new(config, false)
+            .await
+            .expect("wallet connects to Catecash Zaino");
+        tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            wallet.sync_to_tip_and_await(),
+        )
+        .await
+        .expect("Catecash sync finishes")
+        .expect("Catecash sync succeeds");
+        let stored = wallet.wallet().read().await;
+        assert!(
+            stored.sync_state.last_known_chain_height() >= Some(BlockHeight::from_u32(1)),
+            "wallet records the mined block height"
+        );
+    }
 
     #[tokio::test]
     async fn new_wallet_from_phrase() {

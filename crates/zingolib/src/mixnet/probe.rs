@@ -81,7 +81,9 @@ fn get_client_stage(error: &GetClientError) -> NetOpStage {
         GetClientError::InvalidScheme
         | GetClientError::InvalidAuthority
         | GetClientError::NoIndexerUri => NetOpStage::RouteResolution,
-        GetClientError::Transport(_) => NetOpStage::RemoteConnect,
+        GetClientError::Transport(_) | GetClientError::NetworkIdentity(_) => {
+            NetOpStage::RemoteConnect
+        }
     }
 }
 

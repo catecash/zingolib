@@ -1,5 +1,6 @@
 use bip0039::Mnemonic;
 use secrecy::ExposeSecret;
+use std::num::NonZeroU32;
 
 use zcash_keys::keys::Era;
 use zcash_protocol::{PoolType, ShieldedPool};
@@ -19,6 +20,115 @@ use crate::{
         keys::unified::UnifiedKeyStore,
     },
 };
+
+#[test]
+fn catecash_wallet_round_trips_without_opening_as_zcash() {
+    use crate::{
+        config::{ChainType, WalletConfig},
+        wallet::{LightWallet, WalletSettings},
+    };
+
+    let chain = ChainType::CatecashDevnet;
+    let mut wallet = LightWallet::new(
+        chain,
+        WalletConfig::NewSeed {
+            no_of_accounts: NonZeroU32::new(1).expect("one is nonzero"),
+            chain_height: 1,
+            wallet_settings: WalletSettings::default(),
+        },
+    )
+    .expect("Catecash seed creates a wallet");
+    let address = wallet
+        .transparent_addresses()
+        .values()
+        .next()
+        .expect("new wallet has one transparent address")
+        .clone();
+    assert!(address.starts_with("yP"));
+    let mnemonic_phrase = wallet
+        .mnemonic_phrase()
+        .expect("seed wallet has a recovery phrase");
+    let imported = LightWallet::new(
+        chain,
+        WalletConfig::MnemonicPhrase {
+            mnemonic_phrase,
+            no_of_accounts: NonZeroU32::new(1).expect("one is nonzero"),
+            birthday: 1,
+            wallet_settings: WalletSettings::default(),
+        },
+    )
+    .expect("Catecash recovery phrase imports");
+    assert_eq!(
+        imported.transparent_addresses().values().next(),
+        Some(&address)
+    );
+
+    let mut bytes = Vec::new();
+    wallet.write(&mut bytes, &chain).expect("wallet serializes");
+    assert_eq!(
+        LightWallet::read_chain(&bytes).expect("stored chain decodes"),
+        chain
+    );
+    let restored = LightWallet::read(&bytes[..], chain).expect("Catecash wallet restores");
+    assert_eq!(
+        restored.transparent_addresses().values().next(),
+        Some(&address)
+    );
+    let mismatch = LightWallet::read(&bytes[..], ChainType::Mainnet)
+        .expect_err("Catecash wallet must not open on Zcash mainnet");
+    assert!(mismatch.get_ref().is_some_and(|cause| {
+        cause
+            .downcast_ref::<crate::wallet::disk::ChainMismatch>()
+            .is_some()
+    }));
+}
+
+#[test]
+fn catecash_mainnet_wallet_creates_and_restores_on_its_own_chain() {
+    use crate::{
+        config::{ChainType, WalletConfig},
+        wallet::{LightWallet, WalletSettings},
+    };
+
+    let chain = ChainType::CatecashMainnet;
+    let mut wallet = LightWallet::new(
+        chain,
+        WalletConfig::NewSeed {
+            no_of_accounts: NonZeroU32::new(1).expect("one account"),
+            chain_height: 1,
+            wallet_settings: WalletSettings::default(),
+        },
+    )
+    .expect("mainnet wallet creates");
+    let address = wallet
+        .transparent_addresses()
+        .values()
+        .next()
+        .expect("wallet has transparent receiver")
+        .clone();
+    assert!(address.starts_with("Ca"));
+
+    let phrase = wallet.mnemonic_phrase().expect("wallet has recovery phrase");
+    let imported = LightWallet::new(
+        chain,
+        WalletConfig::MnemonicPhrase {
+            mnemonic_phrase: phrase,
+            no_of_accounts: NonZeroU32::new(1).expect("one account"),
+            birthday: 1,
+            wallet_settings: WalletSettings::default(),
+        },
+    )
+    .expect("mainnet phrase imports");
+    assert_eq!(imported.transparent_addresses().values().next(), Some(&address));
+
+    let mut bytes = Vec::new();
+    wallet.write(&mut bytes, &chain).expect("wallet serializes");
+    assert_eq!(LightWallet::read_chain(&bytes).expect("chain decodes"), chain);
+    let restored = LightWallet::read(&bytes[..], chain).expect("wallet reopens");
+    assert_eq!(restored.transparent_addresses().values().next(), Some(&address));
+    assert!(LightWallet::read(&bytes[..], ChainType::CatecashTestnet).is_err());
+    assert!(LightWallet::read(&bytes[..], ChainType::Mainnet).is_err());
+}
 
 // moving toward completeness: each of these tests should assert everything known about the LightWallet without network.
 

@@ -2,6 +2,7 @@
 members = [
   "crates/pepper-sync",
   "bin/cli",
+  "utilities/catecash-miner-transfer",
   "crates/common",
   "crates/file-format",
   "crates/zingolib",
@@ -201,3 +202,8 @@ opt-level = "z"
 # crate.
 [patch.crates-io]
 rustls-platform-verifier = { path = "crates/netutils/webpki-verifier-shim" }
+zcash_address = { path = "../catecash-zebra/vendor/zcash_address" }
+zcash_keys = { path = "../catecash-zebra/vendor/zcash_keys" }
+zcash_protocol = { path = "../catecash-zebra/vendor/zcash_protocol" }
+zcash_primitives = { path = "../catecash-zebra/vendor/zcash_primitives" }
+zcash_transparent = { path = "../catecash-zebra/vendor/zcash_transparent" }

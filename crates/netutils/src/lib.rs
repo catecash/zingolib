@@ -390,6 +390,7 @@ pub trait Indexer {
 #[derive(Debug, Clone)]
 pub struct GrpcIndexer {
     clear_net_client: CompactTxStreamerClient<Channel>,
+    channel: Channel,
 }
 
 impl GrpcIndexer {
@@ -397,7 +398,8 @@ impl GrpcIndexer {
         let (endpoint, dial) = indexer_endpoint(uri, mozilla_roots())?;
         let channel = endpoint.connect_with_connector(dial).await?;
         Ok(Self {
-            clear_net_client: CompactTxStreamerClient::new(channel),
+            clear_net_client: CompactTxStreamerClient::new(channel.clone()),
+            channel,
         })
     }
 
@@ -408,7 +410,8 @@ impl GrpcIndexer {
         let (endpoint, dial) = indexer_endpoint(uri, mozilla_roots())?;
         let channel = endpoint.connect_with_connector_lazy(dial);
         Ok(Self {
-            clear_net_client: CompactTxStreamerClient::new(channel),
+            clear_net_client: CompactTxStreamerClient::new(channel.clone()),
+            channel,
         })
     }
 

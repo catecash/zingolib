@@ -24,6 +24,9 @@ pub enum GetClientError {
     #[error("no indexer uri: nothing to attach to")]
     NoIndexerUri,
 
+    #[error("indexer network identity mismatch: {0}")]
+    NetworkIdentity(String),
+
     #[error(transparent)]
     Transport(#[from] tonic::transport::Error),
 }

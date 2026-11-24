@@ -17,6 +17,12 @@ use super::{
     keys::unified::UnifiedKeyStore,
 };
 
+fn checked_sum_atomic(amounts: impl IntoIterator<Item = u128>) -> Result<u128, BalanceError> {
+    amounts.into_iter().try_fold(0u128, |sum, amount| {
+        sum.checked_add(amount).ok_or(BalanceError::Overflow)
+    })
+}
+
 /// Balance for a wallet account.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountBalance {
@@ -124,19 +130,20 @@ impl std::fmt::Display for AccountBalance {
 
 impl From<AccountBalance> for json::JsonValue {
     fn from(value: AccountBalance) -> Self {
+        let amount = |balance: Option<Zatoshis>| balance.map(Zatoshis::into_u64);
         json::object! {
-            "confirmed_ironwood_balance" => value.confirmed_ironwood_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "unconfirmed_ironwood_balance" => value.unconfirmed_ironwood_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "total_ironwood_balance" => value.total_ironwood_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "confirmed_orchard_balance" => value.confirmed_orchard_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "unconfirmed_orchard_balance" => value.unconfirmed_orchard_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "total_orchard_balance" => value.total_orchard_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "confirmed_sapling_balance" => value.confirmed_sapling_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "unconfirmed_sapling_balance" => value.unconfirmed_sapling_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "total_sapling_balance" => value.total_sapling_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "confirmed_transparent_balance" => value.confirmed_transparent_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "unconfirmed_transparent_balance" => value.unconfirmed_transparent_balance.map(zcash_protocol::value::Zatoshis::into_u64),
-            "total_transparent_balance" => value.total_transparent_balance.map(zcash_protocol::value::Zatoshis::into_u64),
+            "confirmed_ironwood_balance" => amount(value.confirmed_ironwood_balance),
+            "unconfirmed_ironwood_balance" => amount(value.unconfirmed_ironwood_balance),
+            "total_ironwood_balance" => amount(value.total_ironwood_balance),
+            "confirmed_orchard_balance" => amount(value.confirmed_orchard_balance),
+            "unconfirmed_orchard_balance" => amount(value.unconfirmed_orchard_balance),
+            "total_orchard_balance" => amount(value.total_orchard_balance),
+            "confirmed_sapling_balance" => amount(value.confirmed_sapling_balance),
+            "unconfirmed_sapling_balance" => amount(value.unconfirmed_sapling_balance),
+            "total_sapling_balance" => amount(value.total_sapling_balance),
+            "confirmed_transparent_balance" => amount(value.confirmed_transparent_balance),
+            "unconfirmed_transparent_balance" => amount(value.unconfirmed_transparent_balance),
+            "total_transparent_balance" => amount(value.total_transparent_balance),
         }
     }
 }
@@ -157,6 +164,67 @@ fn format_zatoshis(zatoshis: Zatoshis) -> String {
 }
 
 impl LightWallet {
+    /// Serializes Catecash account balances with checked 128-bit pool sums.
+    pub fn catecash_balance_json(
+        &self,
+        account_id: zip32::AccountId,
+    ) -> Result<json::JsonValue, BalanceError> {
+        let ironwood = self.wide_pool_balance::<IronwoodNote>(account_id)?;
+        let orchard = self.wide_pool_balance::<OrchardNote>(account_id)?;
+        let sapling = self.wide_pool_balance::<SaplingNote>(account_id)?;
+        let transparent = self.wide_pool_balance::<TransparentCoin>(account_id)?;
+        let amount = |balance: Option<u128>| balance.map(|atomic| atomic.to_string());
+        Ok(json::object! {
+            "confirmed_ironwood_balance" => amount(ironwood.0),
+            "unconfirmed_ironwood_balance" => amount(ironwood.1),
+            "total_ironwood_balance" => amount(ironwood.2),
+            "confirmed_orchard_balance" => amount(orchard.0),
+            "unconfirmed_orchard_balance" => amount(orchard.1),
+            "total_orchard_balance" => amount(orchard.2),
+            "confirmed_sapling_balance" => amount(sapling.0),
+            "unconfirmed_sapling_balance" => amount(sapling.1),
+            "total_sapling_balance" => amount(sapling.2),
+            "confirmed_transparent_balance" => amount(transparent.0),
+            "unconfirmed_transparent_balance" => amount(transparent.1),
+            "total_transparent_balance" => amount(transparent.2),
+        })
+    }
+
+    fn wide_pool_balance<Op: OutputInterface>(
+        &self,
+        account_id: zip32::AccountId,
+    ) -> Result<(Option<u128>, Option<u128>, Option<u128>), BalanceError> {
+        let confirmed = self.get_filtered_balance_wide::<Op, _>(
+            |output, transaction| {
+                Op::value(output) > MARGINAL_FEE.into_u64()
+                    && transaction.status().is_confirmed()
+                    && self.is_transparent_output_mature::<Op>(transaction)
+            },
+            account_id,
+        );
+        let unconfirmed = self.get_filtered_balance_wide::<Op, _>(
+            |output, transaction| {
+                Op::value(output) > MARGINAL_FEE.into_u64() && transaction.status().is_pending()
+            },
+            account_id,
+        );
+        match (confirmed, unconfirmed) {
+            (
+                Err(BalanceError::KeyError(KeyError::NoViewCapability)),
+                Err(BalanceError::KeyError(KeyError::NoViewCapability)),
+            ) => Ok((None, None, None)),
+            (Ok(confirmed), Ok(unconfirmed)) => Ok((
+                Some(confirmed),
+                Some(unconfirmed),
+                Some(
+                    confirmed
+                        .checked_add(unconfirmed)
+                        .ok_or(BalanceError::Overflow)?,
+                ),
+            )),
+            (Err(error), _) | (_, Err(error)) => Err(error),
+        }
+    }
     /// Checks if a transparent output has reached coinbase maturity.
     ///
     /// Returns `true` if the output can be included in balance calculations:
@@ -300,6 +368,20 @@ impl LightWallet {
         Op: OutputInterface,
         F: Fn(&Op, &TransactionRecord) -> bool,
     {
+        let balance = self.get_filtered_balance_wide::<Op, F>(filter_function, account_id)?;
+        let narrow = u64::try_from(balance).map_err(|_| BalanceError::Overflow)?;
+        Ok(utils::conversion::zatoshis_from_u64(narrow)?)
+    }
+
+    fn get_filtered_balance_wide<Op, F>(
+        &self,
+        filter_function: F,
+        account_id: zip32::AccountId,
+    ) -> Result<u128, BalanceError>
+    where
+        Op: OutputInterface,
+        F: Fn(&Op, &TransactionRecord) -> bool,
+    {
         let pending_spends = pepper_sync::pending_spends(&self.wallet_transactions);
         match &self
             .unified_key_store
@@ -334,11 +416,11 @@ impl LightWallet {
             UnifiedKeyStore::Empty => return Err(KeyError::NoViewCapability.into()),
         }
 
-        Ok(utils::conversion::zatoshis_from_u64(
-            self.wallet_transactions
-                .values()
-                .fold(0, |acc, transaction| {
-                    acc + Op::transaction_outputs(transaction)
+        self.wallet_transactions
+            .values()
+            .try_fold(0u128, |acc, transaction| {
+                let transaction_balance = checked_sum_atomic(
+                    Op::transaction_outputs(transaction)
                         .iter()
                         .filter(|&output| {
                             filter_function(output, transaction)
@@ -346,10 +428,11 @@ impl LightWallet {
                                 && !pending_spends.contains_key(&output.output_id())
                                 && output.key_id().account_id() == account_id
                         })
-                        .map(pepper_sync::wallet::OutputInterface::value)
-                        .sum::<u64>()
-                }),
-        )?)
+                        .map(|output| u128::from(Op::value(output))),
+                )?;
+                acc.checked_add(transaction_balance)
+                    .ok_or(BalanceError::Overflow)
+            })
     }
 
     /// Returns total balance of unspent notes in confirmed blocks for a given shielded pool and `account_id`.
@@ -548,6 +631,17 @@ impl LightWallet {
 
 #[cfg(any(test, feature = "testutils"))]
 mod test {
+    #[test]
+    fn tests_that_catecash_aggregate_crosses_legacy_money_cap() {
+        let balance = super::checked_sum_atomic([2_100_000_000_000_000; 5]);
+        assert_eq!(balance.ok(), Some(10_500_000_000_000_000));
+    }
+
+    #[test]
+    fn tests_that_catecash_aggregate_rejects_u128_overflow() {
+        let balance = super::checked_sum_atomic([u128::MAX, 1]);
+        assert!(matches!(balance, Err(super::BalanceError::Overflow)));
+    }
 
     // FIXME: zingo2 rewrite as an integration test
     // #[tokio::test]

@@ -12,9 +12,60 @@ use lightwallet_protocol::{
     Address, AddressList, Balance, GetAddressUtxosArg, GetAddressUtxosReply,
     GetAddressUtxosReplyList, RawTransaction, TransparentAddressBlockFilter,
 };
+use prost::Message;
 use tonic::Request;
 
 use super::{GrpcIndexer, Indexer};
+
+#[derive(Clone, PartialEq, Message)]
+struct CatecashBalanceReply {
+    #[prost(int64, tag = "1")]
+    value_zat: i64,
+    #[prost(message, optional, tag = "2")]
+    value_zat_wide: Option<WideBalance>,
+}
+
+#[derive(Clone, Copy, PartialEq, Message)]
+struct WideBalance {
+    #[prost(fixed64, tag = "1")]
+    low: u64,
+    #[prost(fixed64, tag = "2")]
+    high: u64,
+}
+
+impl CatecashBalanceReply {
+    fn exact_value(self) -> Result<u128, tonic::Status> {
+        self.value_zat_wide
+            .map(|wide| (u128::from(wide.high) << 64) | u128::from(wide.low))
+            .ok_or_else(|| tonic::Status::data_loss("Catecash balance field 2 is missing"))
+    }
+}
+
+impl GrpcIndexer {
+    pub async fn get_catecash_taddress_balance(
+        &self,
+        addresses: AddressList,
+        timeout: Duration,
+    ) -> Result<u128, tonic::Status> {
+        let mut request = Request::new(addresses);
+        request.set_timeout(timeout);
+        let mut client = tonic::client::Grpc::new(self.channel.clone());
+        client
+            .ready()
+            .await
+            .map_err(|error| tonic::Status::unavailable(error.to_string()))?;
+        let response = client
+            .unary(
+                request,
+                http::uri::PathAndQuery::from_static(
+                    "/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTaddressBalance",
+                ),
+                tonic_prost::ProstCodec::<AddressList, CatecashBalanceReply>::default(),
+            )
+            .await?;
+        response.into_inner().exact_value()
+    }
+}
 
 /// Extension of [`Indexer`] for transparent address operations.
 ///
@@ -169,5 +220,46 @@ impl TransparentIndexer for GrpcIndexer {
             .get_address_utxos_stream(request)
             .await?
             .into_inner())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catecash_balance_preserves_u128_boundaries() {
+        for (low, high, expected) in [
+            (0, 0, 0),
+            (u64::MAX, 0, u128::from(u64::MAX)),
+            (0, 1, u128::from(u64::MAX) + 1),
+            (u64::MAX, u64::MAX, u128::MAX),
+        ] {
+            let wire = CatecashBalanceReply {
+                value_zat: -1,
+                value_zat_wide: Some(WideBalance { low, high }),
+            }
+            .encode_to_vec();
+            let decoded = CatecashBalanceReply::decode(wire.as_slice())
+                .expect("encoded Catecash reply decodes");
+            assert_eq!(decoded.exact_value().expect("field 2 exists"), expected);
+        }
+    }
+
+    #[test]
+    fn catecash_balance_requires_field_two_even_for_zero() {
+        for value_zat in [0, 42] {
+            let wire = CatecashBalanceReply {
+                value_zat,
+                value_zat_wide: None,
+            }
+            .encode_to_vec();
+            let decoded = CatecashBalanceReply::decode(wire.as_slice())
+                .expect("encoded legacy reply decodes");
+            assert!(matches!(
+                decoded.exact_value(),
+                Err(status) if status.code() == tonic::Code::DataLoss
+            ));
+        }
     }
 }

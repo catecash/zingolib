@@ -5,6 +5,7 @@
 
 use crate::config::ChainType;
 
+pub mod catecash_mining;
 pub mod config;
 pub mod connectivity;
 pub mod data;
@@ -58,5 +59,8 @@ pub fn get_zennies_for_zingo_address(chain_type: ChainType) -> &'static str {
         ChainType::Mainnet => ZENNIES_FOR_ZINGO_DONATION_ADDRESS,
         ChainType::Testnet => ZENNIES_FOR_ZINGO_TESTNET_ADDRESS,
         ChainType::Regtest(_) => ZENNIES_FOR_ZINGO_REGTEST_ADDRESS,
+        ChainType::CatecashDevnet => "",
+        ChainType::CatecashTestnet => "",
+        ChainType::CatecashMainnet => "",
     }
 }

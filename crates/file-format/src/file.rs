@@ -139,6 +139,9 @@ fn chain_type_from_tag(tag: u8) -> io::Result<ChainType> {
         0 => Ok(ChainType::Mainnet),
         1 => Ok(ChainType::Testnet),
         2 => Ok(ChainType::Regtest(ActivationHeights::default())),
+        3 => Ok(ChainType::CatecashDevnet),
+        4 => Ok(ChainType::CatecashTestnet),
+        5 => Ok(ChainType::CatecashMainnet),
         other => Err(Error::new(
             ErrorKind::InvalidData,
             format!("invalid chain type index stored in wallet file: {}", other,),
@@ -151,6 +154,9 @@ fn chain_name_from_stored(stored: &str) -> io::Result<&'static str> {
         "main" => Ok("mainnet"),
         "test" => Ok("testnet"),
         "regtest" => Ok("regtest"),
+        "catecash-devnet" => Ok("catecash-devnet"),
+        "catecash-testnet" => Ok("catecash-testnet"),
+        "catecash-mainnet" => Ok("catecash-mainnet"),
         other => Err(Error::new(
             ErrorKind::InvalidData,
             format!("invalid chain type stored in wallet file: {}", other,),
@@ -228,7 +234,11 @@ fn chain_type_from_stored(stored: &str) -> io::Result<ChainType> {
     chain_type_from_tag(match chain_name_from_stored(stored)? {
         "mainnet" => 0,
         "testnet" => 1,
-        _ => 2,
+        "regtest" => 2,
+        "catecash-devnet" => 3,
+        "catecash-testnet" => 4,
+        "catecash-mainnet" => 5,
+        _ => unreachable!("validated chain name"),
     })
 }
 
@@ -299,6 +309,9 @@ impl<M: MigrationSection> WalletFileRef<'_, M> {
             ChainType::Mainnet => 0,
             ChainType::Testnet => 1,
             ChainType::Regtest(_) => 2,
+            ChainType::CatecashDevnet => 3,
+            ChainType::CatecashTestnet => 4,
+            ChainType::CatecashMainnet => 5,
         })?;
         let seed_bytes = match self.mnemonic {
             Some(m) => m.clone().into_entropy(),
@@ -1096,7 +1109,10 @@ pub fn read_recovery_info<R: Read>(mut reader: R) -> io::Result<RecoveryInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AmbiguousV42Tail, UnreadableV42Tail, V42Layout, V42Tail, chain_mismatch};
+    use super::{
+        AmbiguousV42Tail, UnreadableV42Tail, V42Layout, V42Tail, chain_mismatch,
+        chain_type_from_stored, chain_type_from_tag, check_saved_chain,
+    };
     use crate::ChainMismatch;
     use crate::{RawMigration, WalletFile};
     use std::{error::Error as _, io};
@@ -1111,6 +1127,20 @@ mod tests {
     const PRICE_TIME: [u8; 4] = [0; 4];
     const DAILY_PRICE_ENTRY: [u8; 8] = [0; 8];
     const SECTION: [u8; 3] = [7, 8, 9];
+
+    #[test]
+    fn catecash_mainnet_wallet_tag_and_name_are_isolated() {
+        assert_eq!(
+            chain_type_from_tag(5).ok(),
+            Some(ChainType::CatecashMainnet)
+        );
+        assert_eq!(
+            chain_type_from_stored("catecash-mainnet").ok(),
+            Some(ChainType::CatecashMainnet)
+        );
+        assert!(check_saved_chain("catecash-mainnet", &ChainType::Mainnet).is_err());
+        assert!(check_saved_chain("mainnet", &ChainType::CatecashMainnet).is_err());
+    }
 
     fn read_raw_tail(tail: &[u8]) -> V42Tail<RawMigration> {
         WalletFile::<RawMigration>::read_v42_tail(tail, ChainType::Mainnet)

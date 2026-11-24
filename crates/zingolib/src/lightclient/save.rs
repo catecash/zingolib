@@ -8,6 +8,9 @@ use std::{borrow::BorrowMut as _, fs::remove_file, sync::atomic};
 use super::LightClient;
 use crate::data::PollReport;
 
+#[cfg(unix)]
+const PRIVATE_WALLET_MODE: u32 = 0o600;
+
 /// The outcome of a save-task shutdown request, distinguishing a stopped task from an absent one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveShutdown {
@@ -30,11 +33,19 @@ async fn write_to_path(wallet_path: &std::path::Path, bytes: &[u8]) -> std::io::
                 .map(|e| format!("{}.tmp", e.to_string_lossy()))
                 .unwrap_or_else(|| "tmp".to_string()),
         );
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&temp_wallet_path)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).truncate(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(PRIVATE_WALLET_MODE);
+        }
+        let file = options.open(&temp_wallet_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            file.set_permissions(std::fs::Permissions::from_mode(PRIVATE_WALLET_MODE))?;
+        }
         let mut writer = std::io::BufWriter::new(file);
         std::io::Write::write_all(&mut writer, &bytes)?;
 
@@ -56,6 +67,35 @@ async fn write_to_path(wallet_path: &std::path::Path, bytes: &[u8]) -> std::io::
     .await
     .map_err(std::io::Error::other)?
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use super::{PRIVATE_WALLET_MODE, write_to_path};
+
+    #[tokio::test]
+    async fn save_restricts_reused_temporary_wallet_file() -> std::io::Result<()> {
+        const BROAD_TEST_MODE: u32 = 0o644;
+        const FILE_MODE_BITS: u32 = 0o777;
+
+        let dir = tempfile::tempdir()?;
+        let wallet = dir.path().join("wallet.dat");
+        let staging = dir.path().join("wallet.dat.tmp");
+        std::fs::write(&staging, b"old wallet")?;
+        std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(BROAD_TEST_MODE))?;
+
+        write_to_path(&wallet, b"new wallet").await?;
+
+        assert_eq!(std::fs::read(&wallet)?, b"new wallet");
+        assert_eq!(
+            std::fs::metadata(&wallet)?.permissions().mode() & FILE_MODE_BITS,
+            PRIVATE_WALLET_MODE
+        );
+        Ok(())
+    }
+}
+
 impl LightClient {
     /// Launches a task for saving the wallet data to persistance when the wallet's `save_required` flag is set.
     pub async fn save_task(&mut self) {

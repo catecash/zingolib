@@ -1092,6 +1092,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "catecash-miner-transfer"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "http 1.5.0",
+ "incrementalmerkletree",
+ "orchard",
+ "serde_json",
+ "tokio",
+ "zcash_address",
+ "zcash_client_backend",
+ "zcash_keys",
+ "zcash_primitives",
+ "zcash_protocol",
+ "zingolib",
+ "zip32",
+ "zl-netutils",
+]
+
+[[package]]
 name = "cbc"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10686,8 +10706,6 @@ dependencies = [
 [[package]]
 name = "zcash_address"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "372023d82d978ab3f27b8e9f7f9b56fc61f3c9cc2b72ec2f8e3bbb278497e474"
 dependencies = [
  "bech32",
  "bs58",
@@ -10761,8 +10779,6 @@ dependencies = [
 [[package]]
 name = "zcash_keys"
 version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e35ad8dafd173b0465e5963b520b241f497d978319faed46547bd81f403fa98"
 dependencies = [
  "bech32",
  "bip32 0.6.0",
@@ -10818,8 +10834,6 @@ dependencies = [
 [[package]]
 name = "zcash_primitives"
 version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50ad9ffda3d83c35e401b2f914980762f201ab40525cb0aab67b8d91e180e7df"
 dependencies = [
  "blake2b_simd",
  "corez",
@@ -10871,8 +10885,6 @@ dependencies = [
 [[package]]
 name = "zcash_protocol"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "266da226b6be42545b9fc299f1def9f5e525764845b8afa874f167155de943ba"
 dependencies = [
  "corez",
  "document-features",
@@ -10910,8 +10922,6 @@ dependencies = [
 [[package]]
 name = "zcash_transparent"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb804d0179500e9543502dd6dfa178826617107897e6fe171241e5b767b7a0dd"
 dependencies = [
  "bip32 0.6.0",
  "bs58",
@@ -11058,6 +11068,7 @@ dependencies = [
  "bech32",
  "bip0039 0.14.0",
  "blake2b_simd",
+ "bs58",
  "byteorder",
  "chrono",
  "dirs 7.0.0",
@@ -11076,6 +11087,7 @@ dependencies = [
  "rand 0.10.2",
  "rand_chacha 0.10.0",
  "sapling-crypto",
+ "secp256k1 0.33.1",
  "secrecy",
  "serde",
  "serde_json",
@@ -11300,6 +11312,7 @@ dependencies = [
  "nym-statistics-common",
  "nym-topology",
  "nym-validator-client",
+ "prost 0.14.4",
  "rand 0.10.2",
  "reqwest 0.12.28",
  "rustls 0.23.46",
@@ -11311,6 +11324,7 @@ dependencies = [
  "tokio-socks",
  "tokio-stream",
  "tonic",
+ "tonic-prost",
  "tower",
  "webpki-roots 1.0.9",
  "x509-parser",

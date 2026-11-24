@@ -31,7 +31,10 @@ use log::{debug, warn};
 use pepper_sync::config::{PerformanceLevel, SyncConfig, TransparentAddressDiscovery};
 #[cfg(feature = "nym")]
 use pepper_sync::error::{SyncError, SyncRecoveryObservables};
-use zingolib::config::{ChainType, ClientConfig, DEFAULT_WALLET_NAME, WalletConfig};
+use zingolib::config::{
+    CATECASH_DEVNET_WALLET_NAME, CATECASH_MAINNET_WALLET_NAME, CATECASH_TESTNET_WALLET_NAME,
+    ChainType, ClientConfig, DEFAULT_WALLET_NAME, WalletConfig,
+};
 use zingolib::data::PollReport;
 use zingolib::lightclient::{DEFAULT_REQUEST_TIMEOUT, LightClient};
 use zingolib::netutils::Indexer as _;
@@ -543,6 +546,9 @@ fn start_interactive(cli_config: &CliConfigTemplate, ch: CommandChannel) -> Exit
     let chain_name = match cli_config.chaintype {
         ChainType::Mainnet => "main",
         ChainType::Testnet => "test",
+        ChainType::CatecashDevnet => "catecash-devnet",
+        ChainType::CatecashTestnet => "catecash-testnet",
+        ChainType::CatecashMainnet => "catecash-mainnet",
         ChainType::Regtest(_) => "regtest",
     };
 
@@ -1201,7 +1207,10 @@ impl CliConfigTemplate {
 /// I/O is the chain-tip fetch that dates a brand-new wallet, which an
 /// Offline-mode session never performs.
 async fn build_zingo_config(filled_template: &CliConfigTemplate) -> std::io::Result<ClientConfig> {
-    let wallet_path = filled_template.data_dir.clone().join(DEFAULT_WALLET_NAME);
+    let wallet_path = filled_template
+        .data_dir
+        .clone()
+        .join(wallet_name_for_chain(filled_template.chaintype));
     let no_of_accounts = NonZeroU32::try_from(1).expect("hard-coded integer");
     let wallet_settings = WalletSettings {
         sync_config: SyncConfig {
@@ -1468,11 +1477,23 @@ async fn attempt_sync_recovery<E: std::fmt::Debug + std::fmt::Display>(
 /// Falls back to the prefix-only salvage reader when the user asked for
 /// `recovery_info` but the wallet file cannot be fully parsed. The whole
 /// point of that command is to escape a wallet no current build can read.
+fn wallet_name_for_chain(chain: ChainType) -> &'static str {
+    match chain {
+        ChainType::CatecashDevnet => CATECASH_DEVNET_WALLET_NAME,
+        ChainType::CatecashTestnet => CATECASH_TESTNET_WALLET_NAME,
+        ChainType::CatecashMainnet => CATECASH_MAINNET_WALLET_NAME,
+        _ => DEFAULT_WALLET_NAME,
+    }
+}
+
 fn print_salvaged_recovery_info(
     cli_config: &CliConfigTemplate,
     startup_error: &std::io::Error,
 ) -> std::io::Result<()> {
-    let wallet_path = cli_config.data_dir.clone().join(DEFAULT_WALLET_NAME);
+    let wallet_path = cli_config
+        .data_dir
+        .clone()
+        .join(wallet_name_for_chain(cli_config.chaintype));
     let wallet_file = std::fs::File::open(&wallet_path)?;
     let recovery_info =
         zingolib::wallet::LightWallet::read_recovery_info(std::io::BufReader::new(wallet_file))

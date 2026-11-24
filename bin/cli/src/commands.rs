@@ -1049,6 +1049,9 @@ fn parse_address(address: &str) -> Result<String, CommandError> {
         [
             zingolib::config::ChainType::Mainnet,
             zingolib::config::ChainType::Testnet,
+            zingolib::config::ChainType::CatecashDevnet,
+            zingolib::config::ChainType::CatecashTestnet,
+            zingolib::config::ChainType::CatecashMainnet,
             zingolib::config::ChainType::Regtest(ActivationHeights::default()),
         ]
         .iter()
@@ -1060,6 +1063,9 @@ fn parse_address(address: &str) -> Result<String, CommandError> {
             let chain_name_string = match chain_name {
                 zingolib::config::ChainType::Mainnet => "main",
                 zingolib::config::ChainType::Testnet => "test",
+                zingolib::config::ChainType::CatecashDevnet => "catecash-devnet",
+                zingolib::config::ChainType::CatecashTestnet => "catecash-testnet",
+                zingolib::config::ChainType::CatecashMainnet => "catecash-mainnet",
                 zingolib::config::ChainType::Regtest(_) => "regtest",
                 _ => unreachable!("Invalid chain type"),
             };
@@ -1148,6 +1154,9 @@ fn parse_viewkey(viewkey: &str) -> Result<String, CommandError> {
                     "chain_name" => match network {
                         NetworkType::Main => "main",
                         NetworkType::Test => "test",
+                        NetworkType::CatecashDevnet => "catecash-devnet",
+                        NetworkType::CatecashTestnet => "catecash-testnet",
+                        NetworkType::CatecashMainnet => "catecash-mainnet",
                         NetworkType::Regtest => "regtest",
                     },
                     "address_kind" => "ufvk",

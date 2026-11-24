@@ -7,6 +7,13 @@ crates/zingolib/proptest-regressions
 test-logs/
 .zingo-cli/
 .DS_Store
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.key
+*.pem
 .agent-plans/
 
 # Local corpus of real wallet files (live seed material — never commit)

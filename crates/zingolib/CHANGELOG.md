@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The local Catecash mainnet candidate has a distinct wallet chain identity,
+  branch ID, genesis check, wallet file tag, and storage name. It has no
+  a named indexer for candidate-network use while the parameters remain provisional.
+- Catecash scanned account balances use checked `u128` pool sums and decimal
+  strings in the wallet balance JSON. Zcash balance JSON retains its numeric
+  fields and legacy per-pool bounds.
+- `MiningKey::balance` reads the verified Catecash transparent balance as
+  `u128` and checks it against the returned UTXOs before reporting it.
+- `MiningKey::build_ironwood_sweep` signs a mature devnet coinbase reward into
+  an Ironwood receiver with no transparent outputs.
 - `testnet` feature, off by default. It turns on `nym` and builds the
   testnet cells of `tests/testnet.rs`, which moved here from the
   `libtonode-tests` crate. The cells dial the public testnet, spend from
@@ -137,6 +147,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names it through `zingolib` or `zl-common`.
 
 ### Fixed
+- Wallet saves on Unix write through an owner-only temporary file and keep
+  the replacement wallet file at mode `0600`, including when a temporary
+  file is reused.
 - A transaction the wallet believes failed, whose block later reaches the
   wallet, lands as a spent note with no phantom unspent copy beside it: the
   failure releases the input by status alone and the scan that sees the block

@@ -21,6 +21,9 @@ use crate::wallet::{
 
 /// Default wallet file name
 pub const DEFAULT_WALLET_NAME: &str = "zingo-wallet.dat";
+pub const CATECASH_DEVNET_WALLET_NAME: &str = "catecash-wallet.dat";
+pub const CATECASH_TESTNET_WALLET_NAME: &str = "catecash-testnet-wallet.dat";
+pub const CATECASH_MAINNET_WALLET_NAME: &str = "catecash-mainnet-wallet.dat";
 
 /// The mainnet Library Birthday: a block height that had already been mined
 /// when this zingolib release was cut.
@@ -52,6 +55,9 @@ pub fn lib_birthday(chain: ChainType) -> u32 {
     match chain {
         ChainType::Mainnet => LIB_BIRTHDAY_MAINNET,
         ChainType::Testnet => LIB_BIRTHDAY_TESTNET,
+        ChainType::CatecashDevnet => 1,
+        ChainType::CatecashTestnet => 1,
+        ChainType::CatecashMainnet => 1,
         // A regtest chain is born alongside its wallets; scanning from
         // genesis is both correct and cheap.
         ChainType::Regtest(_) => 1,
@@ -258,6 +264,8 @@ impl IndexerChoice {
     /// assert_eq!(mainnet.and_then(|uri| uri.port_u16()), Some(443));
     /// let testnet = IndexerChoice::Default.resolve(&ChainType::Testnet).expect("testnet has a Default Indexer");
     /// assert_eq!(testnet.and_then(|uri| uri.host().map(str::to_owned)), Some("testnet.zec.rocks".to_owned()));
+    /// let catecash_testnet = IndexerChoice::Default.resolve(&ChainType::CatecashTestnet).expect("Catecash testnet has a Default Indexer");
+    /// assert_eq!(catecash_testnet.and_then(|uri| uri.host().map(str::to_owned)), Some("wallet-testnet.catecash.com".to_owned()));
     /// let regtest = ChainType::Regtest(ActivationHeights::default());
     /// assert!(IndexerChoice::Default.resolve(&regtest).is_err());
     /// assert_eq!(IndexerChoice::Offline.resolve(&ChainType::Testnet).expect("Offline needs no Default Indexer"), None);
@@ -280,6 +288,11 @@ pub fn default_indexer_for(chain: &ChainType) -> Option<http::Uri> {
     match chain {
         ChainType::Mainnet => Some(default_indexer::default_indexer(IndexerChain::Main)),
         ChainType::Testnet => Some(default_indexer::default_indexer(IndexerChain::Test)),
+        ChainType::CatecashDevnet => None,
+        ChainType::CatecashTestnet => Some(http::Uri::from_static(
+            "https://wallet-testnet.catecash.com:443",
+        )),
+        ChainType::CatecashMainnet => None,
         ChainType::Regtest(_) => None,
     }
 }
@@ -448,7 +461,7 @@ impl ClientConfigBuilder {
     pub fn build(self) -> Result<ClientConfig, ClientConfigError> {
         let uses_default_dir = self.wallet_dir.is_none();
         let wallet_dir = wallet_dir_or_default(self.wallet_dir, self.chain_type)?;
-        let wallet_name = wallet_name_or_default(self.wallet_name);
+        let wallet_name = wallet_name_or_default(self.wallet_name, self.chain_type);
         let migrated_from = if uses_default_dir {
             legacy_default_wallet_dir(self.chain_type)
                 .map(|legacy_dir| migrate_legacy_wallet(&legacy_dir, &wallet_dir, &wallet_name))
@@ -495,10 +508,16 @@ impl Default for ClientConfigBuilder {
     }
 }
 
-fn wallet_name_or_default(opt_wallet_name: Option<String>) -> String {
-    let wallet_name = opt_wallet_name.unwrap_or_else(|| DEFAULT_WALLET_NAME.into());
+fn wallet_name_or_default(opt_wallet_name: Option<String>, chain: ChainType) -> String {
+    let default_name = match chain {
+        ChainType::CatecashDevnet => CATECASH_DEVNET_WALLET_NAME,
+        ChainType::CatecashTestnet => CATECASH_TESTNET_WALLET_NAME,
+        ChainType::CatecashMainnet => CATECASH_MAINNET_WALLET_NAME,
+        _ => DEFAULT_WALLET_NAME,
+    };
+    let wallet_name = opt_wallet_name.unwrap_or_else(|| default_name.into());
     if wallet_name.is_empty() {
-        DEFAULT_WALLET_NAME.into()
+        default_name.into()
     } else {
         wallet_name
     }
@@ -516,11 +535,20 @@ fn wallet_name_or_default(opt_wallet_name: Option<String>) -> String {
     target_os = "windows"
 )))]
 fn legacy_default_wallet_dir(chain: ChainType) -> Option<PathBuf> {
+    if matches!(
+        chain,
+        ChainType::CatecashDevnet | ChainType::CatecashTestnet | ChainType::CatecashMainnet
+    ) {
+        return None;
+    }
     let mut dir = dirs::home_dir()?;
     dir.push(".zcash");
     match chain {
         ChainType::Mainnet => {}
         ChainType::Testnet => dir.push("testnet3"),
+        ChainType::CatecashDevnet | ChainType::CatecashTestnet | ChainType::CatecashMainnet => {
+            unreachable!("Catecash has no legacy Zcash directory")
+        }
         ChainType::Regtest(_) => dir.push("regtest"),
     }
     Some(dir)
@@ -599,17 +627,42 @@ fn wallet_dir_or_default(
 
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
                 {
-                    dir.push("Zcash");
+                    dir.push(
+                        if matches!(
+                            chain,
+                            ChainType::CatecashDevnet
+                                | ChainType::CatecashTestnet
+                                | ChainType::CatecashMainnet
+                        ) {
+                            "Catecash"
+                        } else {
+                            "Zcash"
+                        },
+                    );
                 }
 
                 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
                 {
-                    dir.push(".zcash");
+                    dir.push(
+                        if matches!(
+                            chain,
+                            ChainType::CatecashDevnet
+                                | ChainType::CatecashTestnet
+                                | ChainType::CatecashMainnet
+                        ) {
+                            ".catecash"
+                        } else {
+                            ".zcash"
+                        },
+                    );
                 }
 
                 match chain {
                     ChainType::Mainnet => {}
                     ChainType::Testnet => dir.push("testnet3"),
+                    ChainType::CatecashDevnet => dir.push("catecash-devnet"),
+                    ChainType::CatecashTestnet => dir.push("catecash-testnet"),
+                    ChainType::CatecashMainnet => dir.push("catecash-mainnet"),
                     ChainType::Regtest(_) => dir.push("regtest"),
                 }
 
@@ -643,6 +696,16 @@ pub enum ClientConfigError {
 mod tests {
     use crate::config::ChainType;
     use crate::config::ClientConfig;
+
+    #[test]
+    fn catecash_mainnet_candidate_has_separate_storage_and_no_default_server() {
+        assert_eq!(
+            super::wallet_name_or_default(None, ChainType::CatecashMainnet),
+            super::CATECASH_MAINNET_WALLET_NAME
+        );
+        assert!(super::default_indexer_for(&ChainType::CatecashMainnet).is_none());
+        assert_eq!(super::lib_birthday(ChainType::CatecashMainnet), 1);
+    }
 
     #[tokio::test]
     async fn test_load_clientconfig() {
