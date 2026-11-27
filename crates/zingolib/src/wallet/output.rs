@@ -372,11 +372,7 @@ impl LightWallet {
             .collect())
     }
 
-    /// Returns all spendable transparent coins for a given `account` confirmed at or below `target_height`.
-    ///
-    /// Any coins from a coinbase transaction will not be returned without
-    /// [`COINBASE_MATURITY_BLOCKS`](zcash_protocol::consensus::COINBASE_MATURITY_BLOCKS)
-    /// additional confirmations.
+    /// Returns transparent coins spendable at `target_height` after this chain's coinbase maturity.
     pub(crate) fn spendable_transparent_coins(
         &self,
         target_height: BlockHeight,
@@ -402,7 +398,7 @@ impl LightWallet {
                     .transparent_bundle()
                     .map_or(0, |bundle| {
                         if bundle.is_coinbase() {
-                            zcash_protocol::consensus::COINBASE_MATURITY_BLOCKS
+                            self.coinbase_maturity_blocks()
                         } else {
                             0
                         }

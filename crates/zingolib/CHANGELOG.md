@@ -147,6 +147,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names it through `zingolib` or `zl-common`.
 
 ### Fixed
+- Catecash transparent mining rewards enter the confirmed balance and shield
+  proposals after 240 blocks, matching the Catecash node's maturity rule.
 - Wallet saves on Unix write through an owner-only temporary file and keep
   the replacement wallet file at mode `0600`, including when a temporary
   file is reused.

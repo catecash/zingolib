@@ -6,7 +6,6 @@ use pepper_sync::wallet::{
 };
 use zcash_client_backend::data_api::WalletRead;
 use zcash_primitives::transaction::fees::zip317::MARGINAL_FEE;
-use zcash_protocol::consensus::COINBASE_MATURITY_BLOCKS;
 use zcash_protocol::{PoolType, value::Zatoshis};
 
 use crate::utils;
@@ -225,13 +224,7 @@ impl LightWallet {
             (Err(error), _) | (_, Err(error)) => Err(error),
         }
     }
-    /// Checks if a transparent output has reached coinbase maturity.
-    ///
-    /// Returns `true` if the output can be included in balance calculations:
-    /// - For non-transparent outputs: always `true`
-    /// - For regular transparent outputs: always `true`
-    /// - For coinbase transparent outputs: `true` only at or beyond
-    ///   [`COINBASE_MATURITY_BLOCKS`] confirmations
+    /// Checks a transparent coinbase output against the wallet chain's maturity rule.
     fn is_transparent_output_mature<Op: OutputInterface>(
         &self,
         transaction: &TransactionRecord,
@@ -263,7 +256,7 @@ impl LightWallet {
             }
 
             let confirmations = current_height_u32 - tx_height_u32;
-            confirmations >= COINBASE_MATURITY_BLOCKS
+            confirmations >= self.coinbase_maturity_blocks()
         } else {
             true
         }

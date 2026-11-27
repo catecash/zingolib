@@ -263,6 +263,18 @@ impl LightWallet {
         self.chain_type
     }
 
+    /// Returns the transparent coinbase maturity required by this wallet's chain.
+    pub(crate) fn coinbase_maturity_blocks(&self) -> u32 {
+        match self.chain_type {
+            ChainType::CatecashDevnet | ChainType::CatecashTestnet | ChainType::CatecashMainnet => {
+                crate::catecash_mining::COINBASE_MATURITY_BLOCKS as u32
+            }
+            ChainType::Mainnet | ChainType::Testnet | ChainType::Regtest(_) => {
+                zcash_protocol::consensus::COINBASE_MATURITY_BLOCKS
+            }
+        }
+    }
+
     /// Caches the connected indexer's `GetStandardFee` report, `None` for a
     /// fetch that failed (an old backend answers `Unimplemented`). Each
     /// connect overwrites the previous indexer's report.
@@ -518,6 +530,31 @@ mod tests {
             },
         )
         .expect("a known seed on mainnet constructs a wallet")
+    }
+
+    #[test]
+    fn catecash_rewards_wait_for_240_blocks() {
+        for chain in [
+            ChainType::CatecashDevnet,
+            ChainType::CatecashTestnet,
+            ChainType::CatecashMainnet,
+        ] {
+            let wallet = LightWallet::new(
+                chain,
+                WalletConfig::MnemonicPhrase {
+                    mnemonic_phrase: seeds::HOSPITAL_MUSEUM_SEED.to_string(),
+                    no_of_accounts: NonZeroU32::try_from(1).expect("one is a non-zero integer"),
+                    birthday: 1,
+                    wallet_settings: default_test_wallet_settings(),
+                },
+            )
+            .expect("a known seed constructs a Catecash wallet");
+            assert_eq!(wallet.coinbase_maturity_blocks(), 240);
+        }
+        assert_eq!(
+            mainnet_wallet(MAINNET_SAPLING_ACTIVATION).coinbase_maturity_blocks(),
+            100
+        );
     }
 
     #[test]
